@@ -3,8 +3,17 @@ import tensorflow as tf
 from PIL import Image, ImageOps
 import numpy as np
 
+# --- 0. UI SETUP (Must be the first Streamlit command) ---
+st.set_page_config(page_title="AI Forgery Detector", page_icon="🛡️")
+
 # --- CONFIGURATION ---
 MODEL_PATH = 'best_model.keras'
+
+# Initialize session states
+if 'model_updated' not in st.session_state:
+    st.session_state.model_updated = False
+if 'pred_done' not in st.session_state:
+    st.session_state.pred_done = False
 
 # --- 1. LOAD MODEL (Stable Mode) ---
 @st.cache_resource
@@ -65,7 +74,7 @@ def teach_model(image_array, correct_label):
         y = np.array([correct_label])
         st.session_state.model.fit(X, y, epochs=10, verbose=0)
         
-        # Save the improved brain
+        # Save the improved brain to the temporary cloud disk
         st.session_state.model.save(MODEL_PATH)
         return True
     except Exception as e:
@@ -73,8 +82,6 @@ def teach_model(image_array, correct_label):
         return False
 
 # --- 3. UI LAYOUT ---
-st.set_page_config(page_title="AI Forgery Detector", page_icon="🛡️")
-
 st.title("🛡️ AI Forgery Detection System")
 st.markdown("**System Status:** `Online` | **Mode:** `Forensic Analysis`")
 
@@ -108,9 +115,10 @@ if uploaded_file is not None:
 
             st.session_state.last_img = img_array
             st.session_state.pred_done = True
+            st.session_state.model_updated = False # Reset download state on new prediction
 
 # --- 4. FEEDBACK LOOP (Active Learning) ---
-if 'pred_done' in st.session_state and st.session_state.pred_done:
+if st.session_state.pred_done:
     st.divider()
     st.write("### 🧠 Correction Mode (Active Learning)")
     st.info("If the result is wrong, teach the model the truth below.")
@@ -118,12 +126,34 @@ if 'pred_done' in st.session_state and st.session_state.pred_done:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Actually FAKE"):
-            if teach_model(st.session_state.last_img, 0):
-                st.success("Analysis Updated: Model has learned this pattern is FAKE.")
-                st.session_state.pred_done = False
+            with st.spinner("Retraining model logic..."):
+                if teach_model(st.session_state.last_img, 0):
+                    st.success("Analysis Updated: Model has learned this pattern is FAKE.")
+                    st.session_state.pred_done = False
+                    st.session_state.model_updated = True # Trigger the download button
             
     with c2:
         if st.button("Actually REAL"):
-            if teach_model(st.session_state.last_img, 1):
-                st.success("Analysis Updated: Model has learned this pattern is REAL.")
-                st.session_state.pred_done = False
+            with st.spinner("Retraining model logic..."):
+                if teach_model(st.session_state.last_img, 1):
+                    st.success("Analysis Updated: Model has learned this pattern is REAL.")
+                    st.session_state.pred_done = False
+                    st.session_state.model_updated = True # Trigger the download button
+
+# --- 5. SECURE THE WEIGHTS (The Download Lifeline) ---
+if st.session_state.model_updated:
+    st.divider()
+    st.success("✅ Training complete. The weights are updated in temporary memory.")
+    st.warning("⚠️ **CRITICAL FOR PRESENTATION:** Download the updated file now and replace `best_model.keras` in your GitHub repo before the server sleeps!")
+    
+    try:
+        with open(MODEL_PATH, "rb") as file:
+            st.download_button(
+                label="📥 DOWNLOAD UPDATED best_model.keras",
+                data=file,
+                file_name="best_model.keras",
+                mime="application/octet-stream",
+                type="primary"
+            )
+    except Exception as e:
+        st.error(f"Could not prepare download: {e}")
